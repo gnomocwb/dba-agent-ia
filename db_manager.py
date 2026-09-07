@@ -8,7 +8,19 @@ import psycopg2
 import psycopg2.extras
 import mysql.connector
 
-CONNECTIONS_FILE = os.path.join(os.path.dirname(__file__), "connections.json")
+import sys
+
+def get_data_dir() -> str:
+    """Retorna diretório seguro com permissão de escrita para persistência de dados."""
+    if getattr(sys, 'frozen', False):
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            path = os.path.join(appdata, "DBA-Agent-Studio")
+            os.makedirs(path, exist_ok=True)
+            return path
+    return os.path.dirname(os.path.abspath(__file__))
+
+CONNECTIONS_FILE = os.path.join(get_data_dir(), "connections.json")
 
 class SafeJSONEncoder(json.JSONEncoder):
     """Codificador JSON customizado que lida com Decimal, datas e outros tipos comuns em bancos."""

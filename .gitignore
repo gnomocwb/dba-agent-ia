@@ -24,3 +24,9 @@ massa_de_dados.sql
 .vscode/
 .idea/
 
+# PyInstaller & Inno Setup
+build/
+dist/
+installer_output/
+*.spec
+

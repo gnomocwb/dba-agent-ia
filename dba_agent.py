@@ -13,7 +13,18 @@ def get_api_key(provided_key: Optional[str] = None) -> str:
         return provided_key.strip()
     
     # 1. Tenta carregar do config.json local (salvo pela interface web)
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+    try:
+        from db_manager import get_data_dir
+        config_path = os.path.join(get_data_dir(), "config.json")
+    except Exception:
+        config_path = os.path.join(os.path.dirname(__file__), "config.json")
+
+    if not os.path.exists(config_path):
+        # Fallback para diretório relativo do script
+        alt_path = os.path.join(os.path.dirname(__file__), "config.json")
+        if os.path.exists(alt_path):
+            config_path = alt_path
+
     if os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:

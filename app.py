@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, Body
@@ -14,7 +15,8 @@ from db_manager import (
     upsert_connection,
     delete_connection,
     test_db_connection,
-    SafeJSONEncoder
+    SafeJSONEncoder,
+    get_data_dir
 )
 from collectors.postgres import collect_postgres_metrics
 from collectors.mariadb import collect_mariadb_metrics
@@ -37,7 +39,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.json")
+CONFIG_FILE = os.path.join(get_data_dir(), "config.json")
 
 def load_app_config() -> Dict[str, Any]:
     if os.path.exists(CONFIG_FILE):
@@ -229,7 +231,19 @@ def api_update_config(payload: Dict[str, Any] = Body(...)):
     return {"success": True}
 
 # Servir arquivos estáticos do frontend
-static_dir = os.path.join(os.path.dirname(__file__), "static")
+def get_static_dir() -> str:
+    if getattr(sys, 'frozen', False):
+        base = getattr(sys, '_MEIPASS', None)
+        if base and os.path.exists(os.path.join(base, "static")):
+            return os.path.join(base, "static")
+        exe_dir = os.path.dirname(sys.executable)
+        if os.path.exists(os.path.join(exe_dir, "_internal", "static")):
+            return os.path.join(exe_dir, "_internal", "static")
+        if os.path.exists(os.path.join(exe_dir, "static")):
+            return os.path.join(exe_dir, "static")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+static_dir = get_static_dir()
 if not os.path.exists(static_dir):
     os.makedirs(static_dir, exist_ok=True)
 
