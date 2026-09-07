@@ -184,15 +184,6 @@ async function loadConnections() {
   }
 }
 
-function renderConnectionSelect() {
-  const select = document.getElementById("activeDbSelect");
-  select.innerHTML = "";
-
-  if (appState.connections.length === 0) {
-    select.innerHTML = `<option value="">Nenhum banco cadastrado</option>`;
-    return;
-  }
-
 function getDbBadge(type) {
   if (type === "postgres") return { icon: "🐘", label: "PostgreSQL" };
   if (type === "mariadb" || type === "mysql") return { icon: "🐬", label: "MariaDB" };
@@ -677,6 +668,10 @@ function renderSizesTable(metrics) {
         <td><strong>${escapeHtml(s.table_name)}</strong></td>
         <td>${s.estimated_rows?.toLocaleString() || 0}</td>
         <td>${s.data_size_mb} MB</td>
+        <td>${s.index_size_mb} MB</td>
+        <td><strong>${s.total_size_mb} MB</strong></td>
+      `;
+    }
     tbody.appendChild(tr);
   });
 }
