@@ -238,21 +238,34 @@ def chat_with_dba(
 
     context = ""
     if current_metrics:
-        db_type = "PostgreSQL" if current_metrics.get("db_type") == "postgres" else "MariaDB"
+        raw_type = current_metrics.get("db_type", "")
+        if raw_type == "postgres":
+            db_type = "PostgreSQL"
+        elif raw_type == "mariadb":
+            db_type = "MariaDB"
+        elif raw_type == "datastore":
+            db_type = "Google Cloud Datastore / Firestore"
+        elif raw_type == "featurestore":
+            db_type = "Google Cloud Vertex AI Feature Store"
+        else:
+            db_type = raw_type or "Banco de Dados"
+
+        target_name = current_metrics.get('database') or current_metrics.get('project_id') or "N/A"
+        item_count = len(current_metrics.get('table_sizes', []) or current_metrics.get('kinds', []) or current_metrics.get('featurestores', []))
+
         context = f"""
-Contexto do Banco Ativo no momento:
+Contexto da Base/Recurso Ativo no momento:
 - Tipo: {db_type}
-- Nome da Base: {current_metrics.get('database')}
-- Versão: {current_metrics.get('version')}
-- Cache Hit Ratio: {current_metrics.get('cache_hit_ratio')}%
-- Resumo de Tabelas: {len(current_metrics.get('table_sizes', []))} tabelas analisadas
+- Identificador/Base: {target_name}
+- Eficiência / Cache Hit: {current_metrics.get('cache_hit_ratio', 'N/A')}%
+- Resumo de Recursos: {item_count} itens analisados
 """
 
     system_instruction = f"""
-Você é um Agente DBA Especialista e Arquiteto de Banco de Dados altamente solícito e experiente.
-Seu papel é responder dúvidas do usuário, sugerir comandos SQL exatos, explicar planos de execução (EXPLAIN), ajudar no particionamento e no tuning de queries.
+Você é um Agente DBA Especialista e Arquiteto de Dados em PostgreSQL, MariaDB, Google Cloud Datastore e Vertex AI Feature Store, altamente solícito e experiente.
+Seu papel é responder dúvidas do usuário, sugerir comandos SQL ou gcloud/Python SDK exatos, explicar planos de execução (EXPLAIN), ajudar no particionamento, indexação, prevenção de hotspots no Datastore e otimização de serving no Feature Store.
 {context}
-Responda sempre com clareza, formatação Markdown bonita, blocos de código SQL prontos para execução e boas práticas de banco de dados.
+Responda sempre com clareza, formatação Markdown bonita, blocos de código prontos para execução e boas práticas de banco de dados e arquitetura de dados.
 """
 
     contents = []
