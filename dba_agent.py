@@ -11,7 +11,34 @@ def get_api_key(provided_key: Optional[str] = None) -> str:
     """Retorna a chave da API do Gemini prioritária."""
     if provided_key and provided_key.strip():
         return provided_key.strip()
-    return os.environ.get("GEMINI_API_KEY", FALLBACK_API_KEY)
+    
+    # 1. Tenta carregar do config.json local (salvo pela interface web)
+    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                if cfg.get("gemini_api_key") and cfg["gemini_api_key"].strip():
+                    return cfg["gemini_api_key"].strip()
+        except Exception:
+            pass
+
+    # 2. Tenta carregar do arquivo .env
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line_clean = line.strip()
+                    if line_clean.startswith("GEMINI_API_KEY="):
+                        val = line_clean.split("=", 1)[1].strip().strip('"').strip("'")
+                        if val:
+                            return val
+        except Exception:
+            pass
+
+    # 3. Variável de ambiente do sistema operacional
+    return os.environ.get("GEMINI_API_KEY", FALLBACK_API_KEY).strip()
 
 def calculate_preliminary_health_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
     """Calcula um score preliminar determinístico (0-100) e alertas antes da análise da IA."""
@@ -232,7 +259,14 @@ def chat_with_dba(
     """Conversação interativa com o Agente DBA mantendo o contexto do banco de dados atual."""
     key = get_api_key(api_key)
     if not key:
-        return "Erro: Chave de API do Gemini não configurada."
+        return """⚠️ **Chave de API do Gemini não configurada.**
+
+Para ativar o chat com o Agente DBA e os diagnósticos com Inteligência Artificial:
+1. Acesse a aba **⚙️ Configurações** no topo da tela.
+2. Cole sua chave de API do Gemini (obtida gratuitamente no [Google AI Studio](https://aistudio.google.com/app/apikey)).
+3. Clique em **Salvar Preferências**.
+
+*Nota: Você também pode criar um arquivo `.env` na raiz do projeto contendo `GEMINI_API_KEY=sua_chave` ou definir a variável de ambiente no sistema.*"""
 
     client = genai.Client(api_key=key)
 
