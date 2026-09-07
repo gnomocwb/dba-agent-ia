@@ -1,0 +1,25 @@
+# Python & Virtualenv
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# Arquivos de Credenciais & Segredos
+connections.json
+config.json
+.env
+
+# Arquivos grandes de simulação / dados locais
+*.jsonl
+Linha2.json
+Linha2026.json
+linha2026*.json
+massa_de_dados.sql
+
+# VS Code & IDEs
+.vscode/
+.idea/
+

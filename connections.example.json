@@ -1,0 +1,25 @@
+[
+  {
+    "id": "pg-exemplo",
+    "name": "PostgreSQL Exemplo",
+    "db_type": "postgres",
+    "host": "localhost",
+    "port": 5432,
+    "database": "meu_banco",
+    "user": "postgres",
+    "password": "sua_senha_aqui",
+    "client_encoding": "latin1"
+  },
+  {
+    "id": "mariadb-exemplo",
+    "name": "MariaDB Exemplo",
+    "db_type": "mariadb",
+    "host": "localhost",
+    "port": 3306,
+    "database": "meu_ecommerce",
+    "user": "root",
+    "password": "sua_senha_aqui",
+    "client_encoding": "utf8mb4"
+  }
+]
+

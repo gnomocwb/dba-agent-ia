@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DBA Agent Studio | Monitor & Otimizador de Banco de Dados</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Markdown parser para relatórios do Gemini -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+  <!-- Top Navbar -->
+  <header class="navbar">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <span>DBA Agent Studio</span>
+      <span class="brand-badge">Gemini AI</span>
+    </div>
+
+    <div class="nav-controls">
+      <div class="db-selector-wrapper">
+        <label for="activeDbSelect">Banco Ativo:</label>
+        <select id="activeDbSelect" class="db-select">
+          <option value="">Carregando bancos...</option>
+        </select>
+      </div>
+
+      <button id="btnRefreshMetrics" class="btn btn-secondary btn-sm" title="Recarregar métricas ao vivo">
+        🔄 Coletar Métricas
+      </button>
+
+      <button id="btnTriggerAnalysis" class="btn btn-ai btn-sm" title="Disparar auditoria completa com Gemini">
+        🧠 Diagnóstico da IA
+      </button>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="tabs-bar">
+    <button class="tab-btn active" data-tab="tab-dashboard">📊 Dashboard de Métricas</button>
+    <button class="tab-btn" data-tab="tab-ai-report">🧠 Relatório do Agente DBA</button>
+    <button class="tab-btn" data-tab="tab-chat">💬 Chat com o Agente DBA</button>
+    <button class="tab-btn" data-tab="tab-connections">🔌 Gerenciar Conexões</button>
+    <button class="tab-btn" data-tab="tab-settings">⚙️ Configurações</button>
+  </nav>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+
+    <!-- TAB 1: DASHBOARD DE MÉTRICAS -->
+    <section id="tab-dashboard" class="tab-panel active">
+      <!-- KPI Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Saúde do Banco</span>
+            <span class="kpi-icon">🏥</span>
+          </div>
+          <div class="kpi-value" id="kpiHealthScore">-- <span style="font-size:1rem;color:var(--text-dim)">/ 100</span></div>
+          <div class="kpi-subtitle" id="kpiHealthBadge"><span class="badge badge-info">Aguardando dados</span></div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Cache Hit Ratio</span>
+            <span class="kpi-icon">⚡</span>
+          </div>
+          <div class="kpi-value" id="kpiCacheHit">--%</div>
+          <div class="kpi-subtitle" id="kpiCacheSub">Eficiência da memória RAM</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Conexões Ativas</span>
+            <span class="kpi-icon">👥</span>
+          </div>
+          <div class="kpi-value" id="kpiConnections">--</div>
+          <div class="kpi-subtitle" id="kpiConnSub">Sessões conectadas</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title" id="kpi4Title">Métrica Específica</span>
+            <span class="kpi-icon" id="kpi4Icon">🔍</span>
+          </div>
+          <div class="kpi-value" id="kpi4Value">--</div>
+          <div class="kpi-subtitle" id="kpi4Sub">Análise de workload</div>
+        </div>
+      </div>
+
+      <!-- Alertas Preliminares de Saúde -->
+      <div id="preliminaryAlertsContainer" style="display:none; margin-bottom: 1.5rem;">
+        <div class="card-section" style="border-left: 4px solid var(--warning); padding: 1rem 1.5rem;">
+          <h4 style="color: var(--warning); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            ⚠️ Observações Rápidas de Performance
+          </h4>
+          <ul id="preliminaryAlertsList" style="padding-left: 1.25rem; font-size: 0.85rem; color: var(--text-main);"></ul>
+        </div>
+      </div>
+
+      <!-- Seção: Top Queries Lentas / Consumo de Tempo -->
+      <div class="card-section">
+        <div class="section-title">
+          <span>🐢 Consultas Lentas & Consumo de Tempo</span>
+          <span id="slowQueryInfoBadge" class="badge badge-info">pg_stat_statements / Slow Log</span>
+        </div>
+        <div class="table-wrapper">
+          <table id="tableSlowQueries">
+            <thead>
+              <tr>
+                <th style="width: 55%;">Consulta SQL</th>
+                <th style="width: 15%;">Chamadas</th>
+                <th style="width: 15%;">Tempo Total</th>
+                <th style="width: 15%;">Tempo Médio</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="4" style="text-align:center; color:var(--text-dim); padding: 2rem;">Selecione um banco e clique em 'Coletar Métricas' para visualizar.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Seção Dupla: Scans Sequenciais vs Tamanho de Tabelas -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 1.5rem;">
+        
+        <!-- Scans Sequenciais / Alertas de Índices -->
+        <div class="card-section">
+          <div class="section-title">
+            <span>🔍 Scans Sequenciais vs Índices</span>
+            <span class="badge badge-warning">Candidatos a Índices</span>
+          </div>
+          <div class="table-wrapper">
+            <table id="tableScans">
+              <thead>
+                <tr>
+                  <th>Tabela</th>
+                  <th>Seq Scans</th>
+                  <th>Idx Scans</th>
+                  <th>% Seq</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="4" style="text-align:center; color:var(--text-dim);">Nenhum dado carregado.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Top Tabelas e Índices por Tamanho -->
+        <div class="card-section">
+          <div class="section-title">
+            <span>💾 Top Tabelas e Índices em Disco</span>
+            <span class="badge badge-info">Espaço / Bloat</span>
+          </div>
+          <div class="table-wrapper">
+            <table id="tableSizes">
+              <thead>
+                <tr>
+                  <th>Tabela</th>
+                  <th>Linhas Est.</th>
+                  <th>Dados</th>
+                  <th>Índices</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="5" style="text-align:center; color:var(--text-dim);">Nenhum dado carregado.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Configurações Críticas do Banco -->
+      <div class="card-section" style="margin-top: 1.5rem;">
+        <div class="section-title">
+          <span>⚙️ Parâmetros Chave de Configuração do Banco</span>
+          <span class="badge badge-info">Memória & I/O</span>
+        </div>
+        <div class="table-wrapper">
+          <table id="tableSettings">
+            <thead>
+              <tr>
+                <th>Parâmetro</th>
+                <th>Valor Atual</th>
+                <th>Descrição / Relevância</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="3" style="text-align:center; color:var(--text-dim);">Nenhum dado carregado.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: RELATÓRIO DO AGENTE DBA (GEMINI) -->
+    <section id="tab-ai-report" class="tab-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <div>
+          <h2 style="font-size: 1.3rem;">Diagnóstico Completo do DBA com Inteligência Artificial</h2>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">Análise aprofundada de I/O, concorrência, queries lentas e recomendações com DDL pronto.</p>
+        </div>
+        <button id="btnReanalyze" class="btn btn-ai">
+          ✨ Gerar Nova Análise
+        </button>
+      </div>
+
+      <div id="aiLoadingContainer" style="display: none; text-align: center; padding: 4rem 1rem;">
+        <div class="spinner" style="width: 38px; height: 38px; border-width: 3px; border-top-color: #8b5cf6; margin-bottom: 1rem;"></div>
+        <h3 style="font-size: 1.15rem; color: #a78bfa;">O Agente DBA está analisando seu banco de dados...</h3>
+        <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Processando estatísticas do catálogo, taxa de cache, planos e DDLs com Gemini 3.7 Flash.</p>
+      </div>
+
+      <div id="aiReportContainer" class="ai-report-box" style="display: block;">
+        <p style="color: var(--text-muted); text-align: center; padding: 3rem 1rem;">
+          Nenhum diagnóstico gerado ainda para esta base de dados.<br>
+          Clique em <strong>"Diagnóstico da IA"</strong> para iniciar a análise automatizada.
+        </p>
+      </div>
+    </section>
+
+    <!-- TAB 3: CHAT COM O AGENTE DBA -->
+    <section id="tab-chat" class="tab-panel">
+      <div class="chat-container">
+        <div class="chat-header">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div class="msg-avatar" style="background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white;">🧠</div>
+            <div>
+              <div style="font-weight: 600; font-size: 0.95rem;">DBA Copilot Especialista</div>
+              <div style="font-size: 0.75rem; color: #34d399;">● Online com contexto do banco selecionado</div>
+            </div>
+          </div>
+          <button id="btnClearChat" class="btn btn-secondary btn-sm">Limpar Conversa</button>
+        </div>
+
+        <div id="chatMessages" class="chat-messages">
+          <div class="message agent">
+            <div class="msg-avatar">DBA</div>
+            <div class="msg-bubble">
+              Olá! Sou seu Agente DBA Especialista em PostgreSQL e MariaDB. Posso ajudar você a:<br>
+              • Sugerir índices ideais para suas queries mais lentas<br>
+              • Explicar como otimizar parâmetros de memória (ex: <code>shared_buffers</code>, <code>innodb_buffer_pool_size</code>)<br>
+              • Interpretar planos de execução <code>EXPLAIN ANALYZE</code><br>
+              • Eliminar tabelas com excesso de scans sequenciais.<br><br>
+              O que você gostaria de analisar agora?
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Prompts -->
+        <div style="padding: 0.5rem 1rem; background: #0f172a; display: flex; gap: 0.5rem; overflow-x: auto; border-top: 1px solid var(--border-color);">
+          <button class="btn btn-secondary btn-sm quick-prompt" data-prompt="Quais índices eu deveria criar com urgência para diminuir scans sequenciais?">⚡ Sugerir Índices Urgentes</button>
+          <button class="btn btn-secondary btn-sm quick-prompt" data-prompt="Como posso ajustar a memória do meu banco para otimizar o Cache Hit Ratio?">💾 Ajuste de Memória RAM</button>
+          <button class="btn btn-secondary btn-sm quick-prompt" data-prompt="Gere o script SQL completo de manutenção e otimização para este banco.">📜 Script de Manutenção SQL</button>
+        </div>
+
+        <form id="chatForm" class="chat-input-box">
+          <input type="text" id="chatInput" class="chat-input" placeholder="Faça uma pergunta sobre a performance do banco..." autocomplete="off">
+          <button type="submit" class="btn btn-ai">Enviar</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- TAB 4: GERENCIAR CONEXÕES -->
+    <section id="tab-connections" class="tab-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div>
+          <h2 style="font-size: 1.3rem;">Bancos de Dados Conectados</h2>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">Cadastre e gerencie instâncias PostgreSQL e MariaDB locais ou remotas.</p>
+        </div>
+        <button id="btnOpenNewConnModal" class="btn btn-primary">
+          ➕ Nova Conexão
+        </button>
+      </div>
+
+      <div id="connectionsList" class="conn-grid">
+        <!-- Cards de conexão renderizados via JavaScript -->
+      </div>
+    </section>
+
+    <!-- TAB 5: CONFIGURAÇÕES -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="card-section" style="max-width: 650px;">
+        <h3 style="font-size: 1.2rem; margin-bottom: 1.25rem;">Configurações da Inteligência Artificial</h3>
+        
+        <form id="settingsForm">
+          <div class="form-group">
+            <label class="form-label" for="settingApiKey">Chave de API do Gemini (Google AI Studio)</label>
+            <input type="password" id="settingApiKey" class="form-control" placeholder="Deixe em branco para usar a chave padrão ou insira nova...">
+            <small id="settingApiKeyStatus" style="font-size: 0.775rem; color: var(--text-dim); margin-top: 0.35rem; display: block;"></small>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="settingModel">Modelo Gemini para Diagnóstico</label>
+            <select id="settingModel" class="form-control">
+              <option value="gemini-3.5-flash-lite" selected>gemini-3.5-flash-lite (Ultra Rápido, 1M contexto, Alta Estabilidade)</option>
+              <option value="gemini-3.5-flash">gemini-3.5-flash (Balanceado e Rápido)</option>
+              <option value="gemini-3.8-flash">gemini-3.8-flash (Nova Geração)</option>
+              <option value="gemini-3.7-flash">gemini-3.7-flash (Raciocínio Avançado)</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Salvar Preferências</button>
+        </form>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL: NOVA / EDITAR CONEXÃO -->
+  <div id="connModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-title">
+        <span id="modalTitleText">Cadastrar Conexão</span>
+        <button id="btnCloseModal" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.25rem;">&times;</button>
+      </div>
+
+      <form id="connectionForm">
+        <input type="hidden" id="formConnId">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tipo de Banco</label>
+            <select id="formDbType" class="form-control" required>
+              <option value="postgres">PostgreSQL</option>
+              <option value="mariadb">MariaDB / MySQL</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nome de Identificação</label>
+            <input type="text" id="formConnName" class="form-control" placeholder="Ex: Postgres Produção" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Host</label>
+            <input type="text" id="formHost" class="form-control" value="localhost" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Porta</label>
+            <input type="number" id="formPort" class="form-control" value="5432" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Nome do Banco de Dados</label>
+          <input type="text" id="formDatabase" class="form-control" placeholder="Ex: GNOMODBVLP ou e_commerce" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Usuário</label>
+            <input type="text" id="formUser" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Senha</label>
+            <input type="password" id="formPassword" class="form-control" placeholder="Senha de acesso">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Encoding / Charset (Opcional)</label>
+          <input type="text" id="formEncoding" class="form-control" placeholder="Ex: latin1, utf8mb4">
+          <small style="color: var(--text-dim); font-size: 0.75rem;">Para Postgres local com erro 0xe3, use 'latin1'.</small>
+        </div>
+
+        <div id="testResultBox" style="display:none; padding: 0.75rem; border-radius: 6px; font-size: 0.825rem; margin-bottom: 1rem;"></div>
+
+        <div class="modal-actions">
+          <button type="button" id="btnTestConnInModal" class="btn btn-secondary">Testar Conexão</button>
+          <button type="submit" class="btn btn-primary">Salvar Perfil</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
+
