@@ -98,14 +98,7 @@ function initEventListeners() {
   });
 
   document.getElementById("formDbType").addEventListener("change", (e) => {
-    const portInput = document.getElementById("formPort");
-    if (e.target.value === "postgres") {
-      portInput.value = "5432";
-      document.getElementById("formEncoding").value = "latin1";
-    } else {
-      portInput.value = "3306";
-      document.getElementById("formEncoding").value = "utf8mb4";
-    }
+    updateModalFormFields(e.target.value);
   });
 
   document.getElementById("btnTestConnInModal").addEventListener("click", () => {
@@ -200,10 +193,28 @@ function renderConnectionSelect() {
     return;
   }
 
+function getDbBadge(type) {
+  if (type === "postgres") return { icon: "🐘", label: "PostgreSQL" };
+  if (type === "mariadb" || type === "mysql") return { icon: "🐬", label: "MariaDB" };
+  if (type === "datastore" || type === "google_datastore") return { icon: "☁️", label: "Google Datastore" };
+  if (type === "featurestore" || type === "google_featurestore") return { icon: "🧠", label: "Vertex AI Feature Store" };
+  return { icon: "💾", label: type };
+}
+
+function renderConnectionSelect() {
+  const select = document.getElementById("activeDbSelect");
+  select.innerHTML = "";
+
+  if (appState.connections.length === 0) {
+    select.innerHTML = `<option value="">Nenhum banco cadastrado</option>`;
+    return;
+  }
+
   appState.connections.forEach(conn => {
+    const badge = getDbBadge(conn.db_type);
     const opt = document.createElement("option");
     opt.value = conn.id;
-    opt.textContent = `${conn.db_type === 'postgres' ? '🐘' : '🐬'} ${conn.name} (${conn.database})`;
+    opt.textContent = `${badge.icon} ${conn.name} (${conn.database || conn.project_id || 'GCP'})`;
     if (conn.id === appState.activeConnectionId) {
       opt.selected = true;
     }
@@ -221,24 +232,30 @@ function renderConnectionsTab() {
   }
 
   appState.connections.forEach(conn => {
-    const isPostgres = conn.db_type === "postgres";
+    const badge = getDbBadge(conn.db_type);
     const isActive = conn.id === appState.activeConnectionId;
+    const isGcp = conn.db_type === "datastore" || conn.db_type === "featurestore";
 
     const card = document.createElement("div");
     card.className = `conn-card ${isActive ? 'active-conn' : ''}`;
     card.innerHTML = `
       <div>
         <div class="conn-title">
-          <span>${isPostgres ? '🐘' : '🐬'}</span>
+          <span>${badge.icon}</span>
           <span>${escapeHtml(conn.name)}</span>
           ${isActive ? '<span class="badge badge-success" style="font-size:0.65rem;">Ativo</span>' : ''}
         </div>
         <div class="conn-meta" style="margin-top:0.75rem;">
-          <div><strong>Tipo:</strong> ${isPostgres ? 'PostgreSQL' : 'MariaDB / MySQL'}</div>
-          <div><strong>Host:</strong> ${conn.host}:${conn.port}</div>
-          <div><strong>Base:</strong> <code>${conn.database}</code></div>
-          <div><strong>Usuário:</strong> ${conn.user}</div>
-          ${conn.client_encoding ? `<div><strong>Charset:</strong> ${conn.client_encoding}</div>` : ''}
+          <div><strong>Tipo:</strong> ${badge.label}</div>
+          ${isGcp ? `
+            <div><strong>Project ID:</strong> <code>${conn.project_id || conn.database}</code></div>
+            ${conn.location ? `<div><strong>Região:</strong> ${conn.location}</div>` : ''}
+            ${conn.database_id ? `<div><strong>Database ID:</strong> ${conn.database_id}</div>` : ''}
+          ` : `
+            <div><strong>Host:</strong> ${conn.host}:${conn.port}</div>
+            <div><strong>Base:</strong> <code>${conn.database}</code></div>
+            <div><strong>Usuário:</strong> ${conn.user}</div>
+          `}
         </div>
       </div>
 
@@ -328,22 +345,57 @@ async function fetchMetrics(connId) {
 
 function renderMetrics(metrics) {
   const isPostgres = metrics.db_type === "postgres";
+  const isDatastore = metrics.db_type === "datastore" || metrics.db_type === "google_datastore";
+  const isFeatureStore = metrics.db_type === "featurestore" || metrics.db_type === "google_featurestore";
 
   // 1. KPI Health Score
   const scoreData = metrics.preliminary_score || { score: "--", status: "Aguardando", badge_class: "info" };
   document.getElementById("kpiHealthScore").innerHTML = `${scoreData.score} <span style="font-size:1rem;color:var(--text-dim)">/ 100</span>`;
   document.getElementById("kpiHealthBadge").innerHTML = `<span class="badge badge-${scoreData.badge_class}">${scoreData.status}</span>`;
 
-  // 2. KPI Cache Hit Ratio
-  const cacheHit = metrics.cache_hit_ratio !== null ? `${metrics.cache_hit_ratio}%` : "N/A";
-  document.getElementById("kpiCacheHit").textContent = cacheHit;
+  // 2. KPI Cache Hit Ratio / Kinds / Featurestores
+  if (isDatastore) {
+    document.querySelector(".kpi-card:nth-child(2) .kpi-title").textContent = "Total Kinds";
+    document.getElementById("kpiCacheHit").textContent = metrics.total_kinds_count || 0;
+    document.getElementById("kpiCacheSub").textContent = "Tipos de Entidades";
+  } else if (isFeatureStore) {
+    document.querySelector(".kpi-card:nth-child(2) .kpi-title").textContent = "Featurestores";
+    document.getElementById("kpiCacheHit").textContent = metrics.total_featurestores || 0;
+    document.getElementById("kpiCacheSub").textContent = "Lojas de Features Ativas";
+  } else {
+    document.querySelector(".kpi-card:nth-child(2) .kpi-title").textContent = "Cache Hit Ratio";
+    const cacheHit = metrics.cache_hit_ratio !== null ? `${metrics.cache_hit_ratio}%` : "N/A";
+    document.getElementById("kpiCacheHit").textContent = cacheHit;
+    document.getElementById("kpiCacheSub").textContent = "Eficiência da memória RAM";
+  }
 
-  // 3. KPI Conexões
-  const totalConns = (metrics.connections_summary || []).reduce((acc, c) => acc + (c.count || 0), 0);
-  document.getElementById("kpiConnections").textContent = totalConns;
+  // 3. KPI Conexões / Entidades / Entity Types
+  if (isDatastore) {
+    document.querySelector(".kpi-card:nth-child(3) .kpi-title").textContent = "Total Entidades";
+    document.getElementById("kpiConnections").textContent = (metrics.total_entities_count || 0).toLocaleString();
+    document.getElementById("kpiConnSub").textContent = "Registros indexados";
+  } else if (isFeatureStore) {
+    document.querySelector(".kpi-card:nth-child(3) .kpi-title").textContent = "Entity Types";
+    document.getElementById("kpiConnections").textContent = metrics.total_entity_types || 0;
+    document.getElementById("kpiConnSub").textContent = "Entidades monitoradas";
+  } else {
+    document.querySelector(".kpi-card:nth-child(3) .kpi-title").textContent = "Conexões Ativas";
+    const totalConns = (metrics.connections_summary || []).reduce((acc, c) => acc + (c.count || 0), 0);
+    document.getElementById("kpiConnections").textContent = totalConns;
+    document.getElementById("kpiConnSub").textContent = "Sessões conectadas";
+  }
 
   // 4. KPI Específico
-  if (isPostgres) {
+  if (isDatastore) {
+    document.getElementById("kpi4Title").textContent = "Tamanho Total";
+    const sizeMb = metrics.total_bytes ? (metrics.total_bytes / (1024 * 1024)).toFixed(2) + " MB" : "0 MB";
+    document.getElementById("kpi4Value").textContent = sizeMb;
+    document.getElementById("kpi4Sub").textContent = "Armazenamento na GCP";
+  } else if (isFeatureStore) {
+    document.getElementById("kpi4Title").textContent = "Total Features";
+    document.getElementById("kpi4Value").textContent = metrics.total_features || 0;
+    document.getElementById("kpi4Sub").textContent = `${metrics.online_serving_nodes || 0} nós online`;
+  } else if (isPostgres) {
     document.getElementById("kpi4Title").textContent = "Total Linhas Mortas";
     const totalDead = (metrics.vacuum_stats || []).reduce((acc, v) => acc + (v.dead_rows || 0), 0);
     document.getElementById("kpi4Value").textContent = totalDead.toLocaleString();
@@ -370,13 +422,13 @@ function renderMetrics(metrics) {
     alertsContainer.style.display = "none";
   }
 
-  // Tabela: Consultas Lentas
+  // Tabela: Consultas Lentas / Kinds / Entity Types
   renderSlowQueriesTable(metrics);
 
-  // Tabela: Scans Sequenciais vs Índices
+  // Tabela: Scans / Hotspots / Drift
   renderScansTable(metrics);
 
-  // Tabela: Tamanho de Tabelas
+  // Tabela: Tamanho / Propriedades / Serving
   renderSizesTable(metrics);
 
   // Tabela: Configurações
@@ -385,7 +437,80 @@ function renderMetrics(metrics) {
 
 function renderSlowQueriesTable(metrics) {
   const tbody = document.querySelector("#tableSlowQueries tbody");
+  const thead = document.querySelector("#tableSlowQueries thead");
   tbody.innerHTML = "";
+
+  const isDatastore = metrics.db_type === "datastore" || metrics.db_type === "google_datastore";
+  const isFeatureStore = metrics.db_type === "featurestore" || metrics.db_type === "google_featurestore";
+
+  if (isDatastore) {
+    document.querySelector("#tableSlowQueries").closest(".card-section").querySelector(".section-title span").textContent = "📊 Kinds e Tipos de Entidades (Datastore)";
+    thead.innerHTML = `
+      <tr>
+        <th style="width: 40%;">Kind (Tipo de Entidade)</th>
+        <th style="width: 20%;">Entidades Estimadas</th>
+        <th style="width: 20%;">Tamanho Dados</th>
+        <th style="width: 20%;">Tamanho Índices</th>
+      </tr>
+    `;
+    const kinds = metrics.kinds_summary || [];
+    if (kinds.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding: 1.5rem;">Nenhum Kind encontrado no Datastore ou estatísticas ainda não agregadas pela GCP.</td></tr>`;
+      return;
+    }
+    kinds.forEach(k => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><code>${escapeHtml(k.kind_name)}</code></td>
+        <td><strong>${(k.estimated_rows || 0).toLocaleString()}</strong></td>
+        <td>${k.data_size_mb} MB</td>
+        <td>${k.index_size_mb} MB</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    return;
+  }
+
+  if (isFeatureStore) {
+    document.querySelector("#tableSlowQueries").closest(".card-section").querySelector(".section-title span").textContent = "🧠 Catálogo de Featurestores & Entity Types";
+    thead.innerHTML = `
+      <tr>
+        <th style="width: 35%;">Featurestore / Entity Type</th>
+        <th style="width: 20%;">Total Features</th>
+        <th style="width: 25%;">Monitoramento de Drift</th>
+        <th style="width: 20%;">Amostra Features</th>
+      </tr>
+    `;
+    const fsList = metrics.featurestores_summary || [];
+    if (fsList.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding: 1.5rem;">Nenhum Featurestore registrado no projeto/região especificado.</td></tr>`;
+      return;
+    }
+    fsList.forEach(fs => {
+      (fs.entity_types || []).forEach(et => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(fs.name)}</strong> / <code>${escapeHtml(et.name)}</code></td>
+          <td><strong>${et.features_count}</strong></td>
+          <td><span class="badge ${et.monitoring_enabled ? 'badge-success' : 'badge-warning'}">${et.monitoring_enabled ? '✓ Ativo' : '⚠️ Desativado'}</span></td>
+          <td style="font-size:0.75rem; color:var(--text-dim);">${(et.features_sample || []).join(', ') || '-'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    });
+    return;
+  }
+
+  // Relacional (Postgres / MariaDB)
+  document.querySelector("#tableSlowQueries").closest(".card-section").querySelector(".section-title span").textContent = "🐢 Consultas Lentas & Consumo de Tempo";
+  thead.innerHTML = `
+    <tr>
+      <th style="width: 55%;">Consulta SQL</th>
+      <th style="width: 15%;">Chamadas</th>
+      <th style="width: 15%;">Tempo Total</th>
+      <th style="width: 15%;">Tempo Médio</th>
+    </tr>
+  `;
 
   const slow = metrics.slow_queries || [];
   if (slow.length === 0) {
@@ -414,6 +539,40 @@ function renderScansTable(metrics) {
   const tbody = document.querySelector("#tableScans tbody");
   tbody.innerHTML = "";
 
+  if (metrics.db_type === "datastore" || metrics.db_type === "google_datastore") {
+    const hotspots = metrics.hotspot_risks || [];
+    if (hotspots.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--success);">✓ Nenhum hotspot de escrita sequencial detectado nas amostras de chave.</td></tr>`;
+      return;
+    }
+    hotspots.forEach(h => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(h.kind)}</strong></td>
+        <td colspan="3"><span class="badge badge-danger">⚠️ ${escapeHtml(h.reason)}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+    return;
+  }
+
+  if (metrics.db_type === "featurestore" || metrics.db_type === "google_featurestore") {
+    const alerts = metrics.drift_alerts || [];
+    if (alerts.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--success);">✓ Todas as features monitoradas sem alertas de drift.</td></tr>`;
+      return;
+    }
+    alerts.forEach(a => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(a.type)}</strong></td>
+        <td colspan="3"><span class="badge badge-${a.severity === 'warning' ? 'warning' : 'info'}">${escapeHtml(a.message)}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+    return;
+  }
+
   if (metrics.db_type === "postgres") {
     const scans = metrics.table_scans || [];
     if (scans.length === 0) {
@@ -438,7 +597,7 @@ function renderScansTable(metrics) {
       tbody.appendChild(tr);
     });
   } else {
-    // Para MariaDB: Mostra tabelas sem PK ou índices
+    // MariaDB
     const noPk = metrics.tables_without_pk || [];
     if (noPk.length === 0) {
       tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--success);">✓ Todas as tabelas possuem Chave Primária definida!</td></tr>`;
@@ -458,6 +617,44 @@ function renderScansTable(metrics) {
 function renderSizesTable(metrics) {
   const tbody = document.querySelector("#tableSizes tbody");
   tbody.innerHTML = "";
+
+  if (metrics.db_type === "datastore" || metrics.db_type === "google_datastore") {
+    const props = metrics.properties_summary || [];
+    if (props.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-dim);">Nenhuma propriedade mapeada ainda.</td></tr>`;
+      return;
+    }
+    props.forEach(p => {
+      const tr = document.createElement("tr");
+      const propNames = (p.properties || []).map(pr => pr.property).slice(0, 5).join(", ");
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(p.kind)}</strong></td>
+        <td>${p.properties?.length || 0} props</td>
+        <td colspan="3" style="font-size:0.8rem; color:var(--text-dim);">${escapeHtml(propNames)}...</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    return;
+  }
+
+  if (metrics.db_type === "featurestore" || metrics.db_type === "google_featurestore") {
+    const fsList = metrics.featurestores_summary || [];
+    if (fsList.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-dim);">Nenhum Featurestore listado.</td></tr>`;
+      return;
+    }
+    fsList.forEach(fs => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(fs.name)}</strong></td>
+        <td>${fs.entity_types?.length || 0} tipos</td>
+        <td>${fs.online_serving_nodes} nós fixos</td>
+        <td colspan="2" style="font-size:0.8rem;">Criado: ${escapeHtml(fs.create_time?.substring(0, 19) || '-')}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    return;
+  }
 
   const sizes = metrics.table_sizes || [];
   if (sizes.length === 0) {
@@ -480,10 +677,6 @@ function renderSizesTable(metrics) {
         <td><strong>${escapeHtml(s.table_name)}</strong></td>
         <td>${s.estimated_rows?.toLocaleString() || 0}</td>
         <td>${s.data_size_mb} MB</td>
-        <td>${s.index_size_mb} MB</td>
-        <td><strong>${s.total_size_mb} MB</strong></td>
-      `;
-    }
     tbody.appendChild(tr);
   });
 }
@@ -648,6 +841,31 @@ function appendChatMessage(role, content, customId = null) {
   }
 }
 
+function updateModalFormFields(dbType) {
+  const isGcp = dbType === "datastore" || dbType === "featurestore";
+  const secRel = document.getElementById("sectionRelational");
+  const secGcp = document.getElementById("sectionGcp");
+
+  if (isGcp) {
+    if (secRel) secRel.style.display = "none";
+    if (secGcp) secGcp.style.display = "block";
+  } else {
+    if (secRel) secRel.style.display = "block";
+    if (secGcp) secGcp.style.display = "none";
+
+    const portInput = document.getElementById("formPort");
+    if (portInput) {
+      if (dbType === "postgres") {
+        portInput.value = "5432";
+        document.getElementById("formEncoding").value = "latin1";
+      } else {
+        portInput.value = "3306";
+        document.getElementById("formEncoding").value = "utf8mb4";
+      }
+    }
+  }
+}
+
 // 7. MODAL CONEXÕES
 function openConnModal(conn = null) {
   const modal = document.getElementById("connModal");
@@ -659,12 +877,19 @@ function openConnModal(conn = null) {
     document.getElementById("formConnId").value = conn.id;
     document.getElementById("formDbType").value = conn.db_type;
     document.getElementById("formConnName").value = conn.name;
-    document.getElementById("formHost").value = conn.host;
-    document.getElementById("formPort").value = conn.port;
-    document.getElementById("formDatabase").value = conn.database;
-    document.getElementById("formUser").value = conn.user;
+    document.getElementById("formHost").value = conn.host || "";
+    document.getElementById("formPort").value = conn.port || 5432;
+    document.getElementById("formDatabase").value = conn.database || "";
+    document.getElementById("formUser").value = conn.user || "";
     document.getElementById("formPassword").value = "";
     document.getElementById("formEncoding").value = conn.client_encoding || "";
+
+    document.getElementById("formGcpProject").value = conn.project_id || conn.database || "";
+    document.getElementById("formGcpKeyPath").value = conn.credentials_path || "";
+    document.getElementById("formGcpLocation").value = conn.location || "us-central1";
+    document.getElementById("formGcpDatastoreDb").value = conn.database_id || "(default)";
+
+    updateModalFormFields(conn.db_type);
   } else {
     document.getElementById("modalTitleText").textContent = "Cadastrar Nova Conexão";
     document.getElementById("formConnId").value = "";
@@ -676,6 +901,13 @@ function openConnModal(conn = null) {
     document.getElementById("formUser").value = "";
     document.getElementById("formPassword").value = "";
     document.getElementById("formEncoding").value = "latin1";
+
+    document.getElementById("formGcpProject").value = "";
+    document.getElementById("formGcpKeyPath").value = "";
+    document.getElementById("formGcpLocation").value = "us-central1";
+    document.getElementById("formGcpDatastoreDb").value = "(default)";
+
+    updateModalFormFields("postgres");
   }
 
   modal.classList.add("open");
@@ -686,16 +918,24 @@ function closeConnModal() {
 }
 
 function getFormData() {
+  const dbType = document.getElementById("formDbType").value;
+  const isGcp = dbType === "datastore" || dbType === "featurestore";
+  const gcpProject = document.getElementById("formGcpProject") ? document.getElementById("formGcpProject").value.trim() : "";
+
   return {
     id: document.getElementById("formConnId").value || undefined,
     name: document.getElementById("formConnName").value.trim(),
-    db_type: document.getElementById("formDbType").value,
-    host: document.getElementById("formHost").value.trim(),
-    port: parseInt(document.getElementById("formPort").value, 10),
-    database: document.getElementById("formDatabase").value.trim(),
-    user: document.getElementById("formUser").value.trim(),
-    password: document.getElementById("formPassword").value,
-    client_encoding: document.getElementById("formEncoding").value.trim() || undefined
+    db_type: dbType,
+    host: isGcp ? (dbType === "datastore" ? "datastore.googleapis.com" : "aiplatform.googleapis.com") : document.getElementById("formHost").value.trim(),
+    port: isGcp ? 443 : parseInt(document.getElementById("formPort").value || 5432, 10),
+    database: isGcp ? (gcpProject || "gcp-project") : document.getElementById("formDatabase").value.trim(),
+    user: isGcp ? "service-account" : document.getElementById("formUser").value.trim(),
+    password: isGcp ? "" : document.getElementById("formPassword").value,
+    client_encoding: document.getElementById("formEncoding")?.value.trim() || undefined,
+    project_id: gcpProject || undefined,
+    credentials_path: document.getElementById("formGcpKeyPath")?.value.trim() || undefined,
+    location: document.getElementById("formGcpLocation")?.value.trim() || "us-central1",
+    database_id: document.getElementById("formGcpDatastoreDb")?.value.trim() || "(default)"
   };
 }
 

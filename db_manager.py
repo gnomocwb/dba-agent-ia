@@ -158,6 +158,37 @@ def test_db_connection(conn_data: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             return {"success": False, "error": str(e), "message": f"Falha ao conectar no MariaDB: {str(e)}"}
 
+    elif db_type in ["datastore", "google_datastore"]:
+        try:
+            from collectors.datastore import get_datastore_client
+            client = get_datastore_client(conn_data)
+            # Teste rápido: listar kinds com limite 1
+            query = client.query(kind="__kind__")
+            query.keys_only()
+            sample = list(query.fetch(limit=1))
+            return {
+                "success": True,
+                "version": "Google Cloud Datastore (Firestore API v1)",
+                "message": f"Autenticado com sucesso na GCP para o projeto '{client.project}'!"
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e), "message": f"Falha ao conectar no Google Datastore: {str(e)}"}
+
+    elif db_type in ["featurestore", "google_featurestore"]:
+        try:
+            from collectors.featurestore import init_aiplatform
+            from google.cloud import aiplatform
+            proj, loc = init_aiplatform(conn_data)
+            # Teste rápido: listar featurestores
+            fs_list = aiplatform.Featurestore.list()
+            return {
+                "success": True,
+                "version": f"Vertex AI Feature Store ({loc})",
+                "message": f"Conectado com sucesso ao Vertex AI no projeto '{proj}'! Encontrados {len(fs_list)} Featurestores."
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e), "message": f"Falha ao conectar no Vertex AI Feature Store: {str(e)}"}
+
     else:
         return {"success": False, "error": f"Tipo de banco não suportado: {db_type}"}
 

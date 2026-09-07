@@ -18,6 +18,8 @@ from db_manager import (
 )
 from collectors.postgres import collect_postgres_metrics
 from collectors.mariadb import collect_mariadb_metrics
+from collectors.datastore import collect_datastore_metrics
+from collectors.featurestore import collect_featurestore_metrics
 from dba_agent import (
     analyze_database_with_gemini,
     calculate_preliminary_health_score,
@@ -59,19 +61,27 @@ class ConnectionInput(BaseModel):
     db_type: str
     host: str = "localhost"
     port: int = 5432
-    database: str
-    user: str
+    database: str = ""
+    user: str = ""
     password: str = ""
     client_encoding: Optional[str] = None
+    project_id: Optional[str] = None
+    credentials_path: Optional[str] = None
+    location: Optional[str] = "us-central1"
+    database_id: Optional[str] = "(default)"
 
 class TestConnectionInput(BaseModel):
     db_type: str
     host: str = "localhost"
     port: int = 5432
-    database: str
-    user: str
+    database: str = ""
+    user: str = ""
     password: str = ""
     client_encoding: Optional[str] = None
+    project_id: Optional[str] = None
+    credentials_path: Optional[str] = None
+    location: Optional[str] = "us-central1"
+    database_id: Optional[str] = "(default)"
 
 class ChatInput(BaseModel):
     message: str
@@ -132,6 +142,10 @@ def api_get_metrics(conn_id: str):
         metrics = collect_postgres_metrics(conn_data)
     elif db_type in ["mariadb", "mysql"]:
         metrics = collect_mariadb_metrics(conn_data)
+    elif db_type in ["datastore", "google_datastore"]:
+        metrics = collect_datastore_metrics(conn_data)
+    elif db_type in ["featurestore", "google_featurestore"]:
+        metrics = collect_featurestore_metrics(conn_data)
     else:
         raise HTTPException(status_code=400, detail=f"Tipo de banco não suportado: {db_type}")
 
@@ -157,8 +171,14 @@ def api_analyze_database(conn_id: str, payload: Dict[str, Any] = Body(default={}
         db_type = conn_data.get("db_type", "postgres").lower()
         if db_type == "postgres":
             metrics = collect_postgres_metrics(conn_data)
-        else:
+        elif db_type in ["mariadb", "mysql"]:
             metrics = collect_mariadb_metrics(conn_data)
+        elif db_type in ["datastore", "google_datastore"]:
+            metrics = collect_datastore_metrics(conn_data)
+        elif db_type in ["featurestore", "google_featurestore"]:
+            metrics = collect_featurestore_metrics(conn_data)
+        else:
+            raise HTTPException(status_code=400, detail=f"Tipo de banco não suportado: {db_type}")
         cached_metrics[conn_id] = metrics
 
     config = load_app_config()

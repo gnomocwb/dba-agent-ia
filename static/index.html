@@ -329,47 +329,77 @@
           <div class="form-group">
             <label class="form-label">Tipo de Banco</label>
             <select id="formDbType" class="form-control" required>
-              <option value="postgres">PostgreSQL</option>
-              <option value="mariadb">MariaDB / MySQL</option>
+              <option value="postgres">🐘 PostgreSQL</option>
+              <option value="mariadb">🐬 MariaDB / MySQL</option>
+              <option value="datastore">☁️ Google Cloud Datastore</option>
+              <option value="featurestore">🧠 Vertex AI Feature Store</option>
             </select>
           </div>
           <div class="form-group">
             <label class="form-label">Nome de Identificação</label>
-            <input type="text" id="formConnName" class="form-control" placeholder="Ex: Postgres Produção" required>
+            <input type="text" id="formConnName" class="form-control" placeholder="Ex: Datastore Produção" required>
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Host</label>
-            <input type="text" id="formHost" class="form-control" value="localhost" required>
+        <!-- Campos para Bancos Relacionais (Postgres e MariaDB) -->
+        <div id="sectionRelational">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Host</label>
+              <input type="text" id="formHost" class="form-control" value="localhost">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Porta</label>
+              <input type="number" id="formPort" class="form-control" value="5432">
+            </div>
           </div>
+
           <div class="form-group">
-            <label class="form-label">Porta</label>
-            <input type="number" id="formPort" class="form-control" value="5432" required>
+            <label class="form-label">Nome do Banco de Dados</label>
+            <input type="text" id="formDatabase" class="form-control" placeholder="Ex: GNOMODBVLP ou e_commerce">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Usuário</label>
+              <input type="text" id="formUser" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Senha</label>
+              <input type="password" id="formPassword" class="form-control" placeholder="Senha de acesso">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Encoding / Charset (Opcional)</label>
+            <input type="text" id="formEncoding" class="form-control" placeholder="Ex: latin1, utf8mb4">
+            <small style="color: var(--text-dim); font-size: 0.75rem;">Para Postgres local com erro 0xe3, use 'latin1'.</small>
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Nome do Banco de Dados</label>
-          <input type="text" id="formDatabase" class="form-control" placeholder="Ex: GNOMODBVLP ou e_commerce" required>
-        </div>
-
-        <div class="form-row">
+        <!-- Campos para Google Cloud (Datastore e Feature Store) -->
+        <div id="sectionGcp" style="display: none;">
           <div class="form-group">
-            <label class="form-label">Usuário</label>
-            <input type="text" id="formUser" class="form-control" required>
+            <label class="form-label">GCP Project ID</label>
+            <input type="text" id="formGcpProject" class="form-control" placeholder="Ex: meu-projeto-gcp-123456">
           </div>
-          <div class="form-group">
-            <label class="form-label">Senha</label>
-            <input type="password" id="formPassword" class="form-control" placeholder="Senha de acesso">
-          </div>
-        </div>
 
-        <div class="form-group">
-          <label class="form-label">Encoding / Charset (Opcional)</label>
-          <input type="text" id="formEncoding" class="form-control" placeholder="Ex: latin1, utf8mb4">
-          <small style="color: var(--text-dim); font-size: 0.75rem;">Para Postgres local com erro 0xe3, use 'latin1'.</small>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Região / Location (Feature Store)</label>
+              <input type="text" id="formGcpLocation" class="form-control" value="us-central1" placeholder="Ex: us-central1, southamerica-east1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Database ID (Datastore)</label>
+              <input type="text" id="formGcpDatastoreDb" class="form-control" value="(default)" placeholder="(default)">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Caminho da Service Account JSON (Opcional se usar gcloud ADC)</label>
+            <input type="text" id="formGcpKeyPath" class="form-control" placeholder="Ex: C:\Users\mlori\chave-gcp.json">
+            <small style="color: var(--text-dim); font-size: 0.75rem;">Deixe vazio se já tiver autenticado via 'gcloud auth application-default login'.</small>
+          </div>
         </div>
 
         <div id="testResultBox" style="display:none; padding: 0.75rem; border-radius: 6px; font-size: 0.825rem; margin-bottom: 1rem;"></div>

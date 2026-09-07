@@ -73,6 +73,28 @@ def calculate_preliminary_health_score(metrics: Dict[str, Any]) -> Dict[str, Any
             score -= penalty
             deductions.append(f"Mais de 20% das tabelas temporárias foram criadas em disco ({tmp_disk}/{tmp_total}) (-{penalty} pts).")
 
+    # 4. Avaliação específica do Google Datastore
+    elif db_type in ["datastore", "google_datastore"]:
+        hotspots = metrics.get("hotspot_risks", [])
+        if hotspots:
+            penalty = min(30, len(hotspots) * 15)
+            score -= penalty
+            deductions.append(f"{len(hotspots)} kind(s) com risco crítico de hotspot de escrita (chaves sequenciais) (-{penalty} pts).")
+        if metrics.get("errors"):
+            score -= 10
+            deductions.append("Avisos/erros detectados durante coleta de metadados da GCP (-10 pts).")
+
+    # 5. Avaliação específica do Vertex AI Feature Store
+    elif db_type in ["featurestore", "google_featurestore"]:
+        unmonitored = metrics.get("unmonitored_features_count", 0)
+        total_feat = metrics.get("total_features", 0)
+        if total_feat > 0 and unmonitored > 0:
+            penalty = min(25, int((unmonitored / total_feat) * 25))
+            score -= penalty
+            deductions.append(f"{unmonitored} feature(s) sem monitoramento contínuo de drift ativado (-{penalty} pts).")
+        if metrics.get("total_features", 0) > 0 and metrics.get("online_serving_nodes", 0) == 0:
+            deductions.append("Nenhum nó de online serving fixo provisionado (tempo de resposta sob demanda).")
+
     final_score = max(10, min(100, score))
     
     if final_score >= 90:
@@ -106,43 +128,69 @@ def analyze_database_with_gemini(metrics: Dict[str, Any], api_key: Optional[str]
 
     client = genai.Client(api_key=key)
 
-    db_type_label = "PostgreSQL" if metrics.get("db_type") == "postgres" else "MariaDB / MySQL"
+    db_type = metrics.get("db_type", "postgres").lower()
+    if db_type == "postgres":
+        db_type_label = "PostgreSQL Relational DB"
+        focus_structure = """
+## 1. 🏥 Veredito Geral e Resumo Executivo
+## 2. ⚠️ Gargalos Críticos e Riscos (queries lentas, scans sequenciais, bloat de dead tuples, índices)
+## 3. 🎯 Recomendações Práticas e Comandos SQL Prontos (CREATE INDEX CONCURRENTLY, VACUUM ANALYZE)
+## 4. ⚙️ Ajustes Sugeridos em postgresql.conf (shared_buffers, work_mem, effective_cache_size)
+"""
+    elif db_type in ["mariadb", "mysql"]:
+        db_type_label = "MariaDB / MySQL Relational DB"
+        focus_structure = """
+## 1. 🏥 Veredito Geral e Resumo Executivo
+## 2. ⚠️ Gargalos Críticos (tabelas sem PK, buffer pool hit ratio, temp tables em disco)
+## 3. 🎯 Recomendações Práticas e Comandos SQL Prontos (ALTER TABLE, CREATE INDEX, refatoração de query)
+## 4. ⚙️ Ajustes Sugeridos em my.cnf (innodb_buffer_pool_size, tmp_table_size)
+"""
+    elif db_type in ["datastore", "google_datastore"]:
+        db_type_label = "Google Cloud Datastore / Firestore (NoSQL Document Store)"
+        focus_structure = """
+## 1. 🏥 Veredito Geral e Resumo Executivo (Volume de Entidades, Kinds e Tamanho em Disco)
+## 2. ⚠️ Riscos de Hotspots de Escrita e Contenção em Shards Bigtable
+## 3. 🎯 Otimização de Custos e Faturamento GCP (Projection Queries e index.yaml)
+## 4. 🛠️ Recomendações de Modelagem de Chaves e Estrutura de Propriedades
+"""
+    elif db_type in ["featurestore", "google_featurestore"]:
+        db_type_label = "Google Cloud Vertex AI Feature Store (MLOps & Feature Store)"
+        focus_structure = """
+## 1. 🏥 Veredito Geral e Resumo Executivo (Featurestores, Entity Types e Features Registradas)
+## 2. ⚠️ Avaliação de Data Drift e Monitoramento de Features para Modelos de Machine Learning
+## 3. ⚡ Latência de Online Serving e Dimensionamento de Nós
+## 4. 🎯 Políticas de Retenção de Dados (TTL), Ingestion Freshness e Redução de Custos na GCP
+"""
+    else:
+        db_type_label = metrics.get("db_type", "Banco de Dados")
+        focus_structure = """
+## 1. 🏥 Veredito Geral e Resumo Executivo
+## 2. ⚠️ Gargalos Críticos
+## 3. 🎯 Recomendações Práticas
+## 4. ⚙️ Ajustes de Configuração
+"""
+
     preliminary = calculate_preliminary_health_score(metrics)
 
     prompt = f"""
-Você é um Arquiteto de Dados e DBA Especialista de nível Staff/Senior em {db_type_label}.
-Analise as seguintes métricas de performance, esquemas e configurações extraídas ao vivo de um banco {db_type_label}:
+Você é um Arquiteto de Dados e Especialista Senior em {db_type_label}.
+Analise as seguintes métricas de performance, esquemas e configurações extraídas ao vivo:
 
-=== INFORMAÇÕES DO BANCO ===
-Banco: {metrics.get('database')}
-Host: {metrics.get('host')}
-Versão: {metrics.get('version')}
-Cache Hit Ratio Geral: {metrics.get('cache_hit_ratio')}%
+=== INFORMAÇÕES DO BANCO / SERVIÇO ===
+Identificação: {metrics.get('database')}
+Host / Endpoint: {metrics.get('host')}
+Versão / API: {metrics.get('version')}
 
 === MÉTRICAS COLETADAS EM FORMATO JSON ===
 {json.dumps(metrics, indent=2, ensure_ascii=False, default=str)}
 
 === OBJETIVO ===
-Forneça um relatório executivo e técnico em Markdown com a seguinte estrutura:
+Forneça um relatório executivo e técnico em Markdown estruturado exatamente com os tópicos a seguir:
 
 # 📊 Diagnóstico de Saúde e Performance: {metrics.get('database')} ({db_type_label})
+{focus_structure}
 
-## 1. 🏥 Veredito Geral e Resumo Executivo
-- Nota de Saúde sugerida (0 a 100) e justificativa clara e objetiva.
-- Estado geral de I/O, concorrência e memória.
-
-## 2. ⚠️ Gargalos Críticos e Riscos Identificados
-- Liste os gargalos prioritários detectados (ex: queries lentas, tabelas com seq scans massivos, tabelas sem chave primária, bloat de dead tuples, índices duplicados ou ausentes, parâmetros de memória subdimensionados).
-- Explique o impacto de cada um no consumo de CPU, I/O de disco e latência.
-
-## 3. 🎯 Recomendações Práticas e Comandos SQL Prontos
-- Forneça os comandos SQL exatos para otimização (ex: `CREATE INDEX CONCURRENTLY ...`, `VACUUM ANALYZE ...`, `ALTER TABLE ... ADD PRIMARY KEY ...`).
-- Se houver queries lentas identificadas, mostre a versão otimizada ou índices recomendados para elas.
-
-## 4. ⚙️ Ajustes Sugeridos em Parâmetros de Configuração
-- Sugestões para parâmetros do arquivo de configuração (`postgresql.conf` ou `my.cnf`), como tamanhos de buffer, memória de ordenação e conexões, baseados no tamanho do banco.
-
-Seja extremamente direto, técnico, profissional e foque em ganhos reais de performance.
+Seja extremamente direto, técnico, profissional e foque em otimização prática e redução de custos/latência.
 """
 
     # Lista de modelos prioritários garantindo resposta imediata sem gargalo de cota
